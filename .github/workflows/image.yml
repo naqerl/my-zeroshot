@@ -50,15 +50,17 @@ jobs:
           chmod +x build.sh
           TAG="${IMAGE}:${GITHUB_SHA::12}" ./build.sh
 
+      # The image's ENTRYPOINT is the zeroshot target launcher, so every check must override it.
+      - name: Smoke test
+        run: |
+          image="${IMAGE}:${GITHUB_SHA::12}"
+          docker run --rm --entrypoint pi "$image" --version
+          docker run --rm --entrypoint cat "$image" /opt/zeroshot/pi-extensions/list
+          docker run --rm --entrypoint sh "$image" -c 'head -3 /usr/local/bin/restic && restic version'
+
       - name: Tag and push
         if: github.event_name != 'pull_request'
         run: |
           docker tag "${IMAGE}:${GITHUB_SHA::12}" "${IMAGE}:latest"
           docker push "${IMAGE}:${GITHUB_SHA::12}"
           docker push "${IMAGE}:latest"
-
-      - name: Smoke test
-        run: |
-          docker run --rm "${IMAGE}:${GITHUB_SHA::12}" pi --version
-          docker run --rm "${IMAGE}:${GITHUB_SHA::12}" cat /opt/zeroshot/pi-extensions/list
-          docker run --rm "${IMAGE}:${GITHUB_SHA::12}" sh -c 'head -3 /usr/local/bin/restic'
