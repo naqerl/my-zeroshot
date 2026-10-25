@@ -122,7 +122,7 @@ COPY --chmod=0755 docker/zeroshot-target/harness.sh /usr/local/libexec/zeroshot-
 # pi and this operator's extensions. npm needs to see every dependency install script it will
 # run: esbuild downloads/link its platform binary, @google/genai and protobufjs declare
 # install scripts that must be allowed explicitly.
-RUN install -d /opt/zeroshot/bin /opt/zeroshot/harness/lib/node_modules /opt/zeroshot/pi-extensions \
+RUN install -d /opt/zeroshot/bin /opt/zeroshot/harness/lib/node_modules /opt/zeroshot/pi-extensions/lib/node_modules \
     && cp /usr/local/bin/node /opt/zeroshot/bin/node \
     && npm install --global --no-audit --no-fund "npm@${NPM_VERSION}" \
     && npm install --global --prefix /opt/zeroshot/harness --no-audit --no-fund \
