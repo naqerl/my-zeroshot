@@ -129,7 +129,7 @@ RUN install -d /opt/zeroshot/bin /opt/zeroshot/harness/lib/node_modules /opt/zer
         --strict-allow-scripts \
         --allow-scripts=esbuild,@google/genai,protobufjs \
         "@earendil-works/pi-coding-agent@${PI_VERSION}" \
-    && npm install --prefix /opt/zeroshot/pi-extensions --no-audit --no-fund \
+    && npm install --global --prefix /opt/zeroshot/pi-extensions --no-audit --no-fund \
         --strict-allow-scripts \
         --allow-scripts=esbuild,@google/genai,protobufjs \
         "billion-context@${BILLION_CONTEXT_VERSION}" \
@@ -138,12 +138,13 @@ RUN install -d /opt/zeroshot/bin /opt/zeroshot/harness/lib/node_modules /opt/zer
     && npm cache clean --force
 
 # Resolve each package's declared pi extension entry point into a list the launcher reads,
-# then install the launcher over the harness symlink.
+# then install the launcher over the harness symlink. `--global --prefix` puts the packages in
+# DIR/lib/node_modules; npm rejects `--allow-scripts` on project-scoped installs.
 COPY docker/pi/resolve-extensions.sh /usr/local/libexec/zeroshot-pi-extensions
 COPY docker/pi/pi-launcher.sh /usr/local/bin/pi
 RUN chmod 0755 /usr/local/libexec/zeroshot-pi-extensions /usr/local/bin/pi \
     && /usr/local/libexec/zeroshot-pi-extensions \
-        /opt/zeroshot/pi-extensions/node_modules \
+        /opt/zeroshot/pi-extensions/lib/node_modules \
         /opt/zeroshot/pi-extensions/list \
         billion-context pi-web-access @bytetrue/pi-background-terminal \
     && test -s /opt/zeroshot/pi-extensions/list
