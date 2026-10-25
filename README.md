@@ -36,6 +36,24 @@ hoped for.
 
 pi itself: `1.4.0` (`ARG PI_VERSION`).
 
+## Toolchains in the image
+
+The image carries the compilers a job actually uses, so a run never spends its time installing one
+the host could have provided — and so a *Go* repository has the same footing as the Rust one the
+upstream image was built for.
+
+| Toolchain | Version | Why |
+| --- | --- | --- |
+| Rust (`cargo`, `rustc`, `clippy`, `rustfmt`) | upstream image | the repositories zeroshot is developed against |
+| Go | `1.26.1` (`golang:1.26.1-trixie`) | Go repositories such as `barse` (`go.mod` requires 1.26.1) |
+| `templ` | `0.3.1020` | `barse` generates its `.templ` files with it; editing a template without regenerating leaves the build compiling yesterday's page |
+| `sqlc` | `1.31.1` | `make sqlc` |
+| `staticcheck` | `2026.2.1` | `make vet` runs `go vet` *and* `staticcheck` |
+| `tailwindcss` (standalone) | `4.1.3` | `barse`'s `output.css` is `//go:embed`ed and *not* in the repo: build without it and the binary serves unstyled pages that still report success |
+| Playwright chromium (+ `chromium`'s shared libraries from apt) | `@latest` at build time, best effort | `barse`'s e2e suite drives a real browser. A target run has no root, so `playwright install --with-deps` cannot work there — the browsers are baked instead, under `PLAYWRIGHT_BROWSERS_PATH=/opt/playwright`. The step is deliberately non-fatal: an image without browsers still builds and unit-tests Go code. |
+
+The versions are `ARG`s, so a repository that moves can be served without editing the Dockerfile.
+
 ## What is deliberately excluded
 
 | Excluded | Reason |
