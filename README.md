@@ -130,3 +130,10 @@ docker run --rm my-zeroshot:latest pi --no-extensions --no-approve \
 ```
 
 `background_run` or `web_search` in that output means the `--extension` arguments won.
+
+## Image tags are not immutable
+
+`workflow_dispatch` builds the *my-zeroshot* commit that triggered it, so re-running the
+workflow with a different `zeroshot_ref` input re-pushes the **same** `${GITHUB_SHA::12}` tag
+with different content. A pool pinned to that tag silently changes what it runs. When you
+need a new binary, push a commit here (even a doc change) so the tag changes with it.
