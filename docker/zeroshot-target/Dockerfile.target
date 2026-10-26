@@ -19,7 +19,11 @@ COPY ui ./ui
 RUN npm --prefix ui run build
 
 FROM rust:1.97.0-trixie AS rust-toolchain
-RUN rustup component add rustfmt clippy \
+# llvm-tools-preview provides llvm-cov/llvm-profdata; cargo-llvm-cov drives them.
+# Without both, a coverage job dies with "error: no such command: llvm-cov".
+ARG CARGO_LLVM_COV_VERSION=0.6.21
+RUN rustup component add rustfmt clippy llvm-tools-preview \
+    && cargo install --locked --version "${CARGO_LLVM_COV_VERSION}" cargo-llvm-cov \
     && mkdir -p /opt/rustup \
     && cp -a /usr/local/rustup/. /opt/rustup/ \
     && cp -a /usr/local/cargo/bin /opt/rustup/bin \
@@ -162,7 +166,7 @@ RUN cd /tmp \
     || echo "warning: playwright browsers were not installed"
 
 COPY --chmod=0755 docker/zeroshot-target/rust-tool.sh /usr/local/libexec/zeroshot-rust-tool
-RUN for tool in cargo cargo-clippy cargo-fmt clippy-driver rustc rustdoc rustfmt rustup; do \
+RUN for tool in cargo cargo-clippy cargo-fmt cargo-llvm-cov clippy-driver rustc rustdoc rustfmt rustup; do \
         ln -s /usr/local/libexec/zeroshot-rust-tool "/usr/local/bin/$tool"; \
     done \
     && ldconfig

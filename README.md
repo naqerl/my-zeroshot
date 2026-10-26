@@ -45,6 +45,7 @@ upstream image was built for.
 | Toolchain | Version | Why |
 | --- | --- | --- |
 | Rust (`cargo`, `rustc`, `clippy`, `rustfmt`) | upstream image | the repositories zeroshot is developed against |
+| `cargo-llvm-cov` 0.6.21 + `llvm-tools-preview` | added | measured Rust coverage; without them a coverage job fails with `error: no such command: llvm-cov` |
 | Go | `1.26.1` (`golang:1.26.1-trixie`) | Go repositories such as `barse` (`go.mod` requires 1.26.1) |
 | `templ` | `0.3.1020` | `barse` generates its `.templ` files with it; editing a template without regenerating leaves the build compiling yesterday's page |
 | `sqlc` | `1.31.1` | `make sqlc` |

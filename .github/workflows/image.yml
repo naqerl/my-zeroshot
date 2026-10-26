@@ -58,7 +58,7 @@ jobs:
           docker run --rm --entrypoint cat "$image" /opt/zeroshot/pi-extensions/list
           docker run --rm --entrypoint sh "$image" -c 'head -3 /usr/local/bin/restic && restic version'
           # The Go side of the image: a Go repository has to build and generate on a target.
-          docker run --rm --entrypoint sh "$image" -c 'go version && templ --help >/dev/null && sqlc version && tailwindcss --help >/dev/null && cargo --version'
+          docker run --rm --entrypoint sh "$image" -c 'go version && templ --help >/dev/null && sqlc version && tailwindcss --help >/dev/null && cargo --version && cargo llvm-cov --version'
 
       - name: Tag and push
         if: github.event_name != 'pull_request'
