@@ -46,10 +46,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # A broken graph template must never reach a published image.
-      - name: Verify graph template
+      - name: Verify graph templates
         run: |
           chmod +x scripts/verify-template.sh
-          ./scripts/verify-template.sh
+          ./scripts/verify-template.sh templates/software-change.json
+          ./scripts/verify-template.sh templates/software-change-push.json
 
       - name: Build
         run: |

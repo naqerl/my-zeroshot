@@ -26,6 +26,8 @@ qc() {
 WORKER_APPEND='Final message contract: reply with exactly one JSON object of the form {"response": null}. Any other top-level key (output, signals, payload) is a protocol error and costs a retry.'
 REVIEW_APPEND="Publication is never your concern: the delivery node commits, pushes, and opens the pull request. A local commit in the workspace is the correct state for review. Never reject because nothing is pushed, because the remote branch still points at an older revision, or because a pull request does not exist yet; judge only the workspace content, the observable behaviour, and the user's request."
 REVIEW_ENVELOPE='{"response": {...}}'
+FINDINGS_APPEND='Structured findings are mandatory.'
+CLOSED_APPEND='Previous round findings arrive as acceptanceFeedback and codeFeedback'
 
 if ! command -v jq >/dev/null 2>&1; then
   bad "jq is installed"
@@ -58,6 +60,14 @@ qc "reviewer envelope append present on both verifiers" --arg e "$REVIEW_ENVELOP
   '[.. | strings | select(contains($e))] | length == 2'
 qc "no reviewer still asks for a top-level output/signals envelope" \
   '[.. | strings | select(contains("Final message contract"))] | length == 3'
+qc "structured-findings append present on both verifiers" --arg f "$FINDINGS_APPEND" \
+  '[.. | strings | select(contains($f))] | length == 2'
+qc "closed-findings append present on both verifiers" --arg c "$CLOSED_APPEND" \
+  '[.. | strings | select(contains($c))] | length == 2'
+qc "both verifiers declare the prior-round feedback fields" \
+  '[.. | objects | select(.kind=="verifier" and (.name=="acceptance" or .name=="code")) | .input.fields] | length == 2 and all(.[]; has("acceptanceFeedback") and has("codeFeedback"))'
+qc "both verifiers bind the prior-round feedback from state" \
+  '[.. | objects | select(.kind=="verifier" and (.name=="acceptance" or .name=="code")) | [.inputBindings[].target[0]]] | length == 2 and all(.[]; index("acceptanceFeedback") != null and index("codeFeedback") != null)'
 
 # --- graph shape: kinds and names must match the built-in template -------------------------
 qc "node: seq run"            'any(.. | objects; .kind == "seq" and .name == "run")'
