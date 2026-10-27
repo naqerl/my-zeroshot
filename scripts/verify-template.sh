@@ -28,6 +28,7 @@ REVIEW_APPEND="Publication is never your concern: the delivery node commits, pus
 REVIEW_ENVELOPE='{"response": {...}}'
 FINDINGS_APPEND='Structured findings are mandatory.'
 CLOSED_APPEND='Previous round findings arrive as acceptanceFeedback and codeFeedback'
+REPLY_BUDGET='Budget the reply: it must fit in a single message'
 
 if ! command -v jq >/dev/null 2>&1; then
   bad "jq is installed"
@@ -64,6 +65,8 @@ qc "structured-findings append present on both verifiers" --arg f "$FINDINGS_APP
   '[.. | strings | select(contains($f))] | length == 2'
 qc "closed-findings append present on both verifiers" --arg c "$CLOSED_APPEND" \
   '[.. | strings | select(contains($c))] | length == 2'
+qc "reply-budget append present on both verifiers and the worker" --arg b "$REPLY_BUDGET" \
+  '[.. | strings | select(contains($b))] | length == 3'
 qc "both verifiers declare the prior-round feedback fields" \
   '[.. | objects | select(.kind=="verifier" and (.name=="acceptance" or .name=="code")) | .input.fields] | length == 2 and all(.[]; has("acceptanceFeedback") and has("codeFeedback"))'
 qc "both verifiers bind the prior-round feedback from state" \
