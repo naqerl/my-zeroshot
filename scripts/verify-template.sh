@@ -73,8 +73,8 @@ qc "verifier worker: builtin.agent.acceptance-verifier@1" \
   'any(.. | objects; .worker? == "builtin.agent.acceptance-verifier@1")'
 qc "verifier worker: builtin.agent.code-verifier@1" \
   'any(.. | objects; .worker? == "builtin.agent.code-verifier@1")'
-qc "verifier worker: builtin.git-delivery.pr@2" \
-  'any(.. | objects; .worker? == "builtin.git-delivery.pr@2")'
+qc "delivery worker: builtin.git-delivery.pr@2 or push@1" \
+  'any(.. | objects; (.worker? == "builtin.git-delivery.pr@2") or (.worker? == "builtin.git-delivery.push@1"))'
 qc "verifier nodes are named acceptance and code" \
   'any(.. | objects; .kind == "verifier" and .name == "acceptance") and any(.. | objects; .kind == "verifier" and .name == "code")'
 
