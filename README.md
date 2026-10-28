@@ -51,7 +51,7 @@ upstream image was built for.
 | `sqlc` | `1.31.1` | `make sqlc` |
 | `staticcheck` | `2026.2.1` | `make vet` runs `go vet` *and* `staticcheck` |
 | `tailwindcss` (standalone) | `4.1.3` | `barse`'s `output.css` is `//go:embed`ed and *not* in the repo: build without it and the binary serves unstyled pages that still report success |
-| Playwright chromium (+ `chromium`'s shared libraries from apt) | `@latest` at build time, best effort | `barse`'s e2e suite drives a real browser. A target run has no root, so `playwright install --with-deps` cannot work there — the browsers are baked instead, under `PLAYWRIGHT_BROWSERS_PATH=/opt/playwright`. The step is deliberately non-fatal: an image without browsers still builds and unit-tests Go code. |
+| Playwright chromium (Node package `1.64.1`, plus Go's `playwright-go` `@latest` at build time) and `chromium`'s shared libraries from apt | Node package pinned, Go browser best effort | `barse`'s e2e suite drives a real browser, and a verification step needs `playwright screenshot` without downloading anything at run time. Both browser revisions are baked under `PLAYWRIGHT_BROWSERS_PATH=/opt/playwright`; the Node package is installed globally so its binary is on `PATH`. The Go step stays non-fatal: an image without that browser still builds and unit-tests Go code. |
 
 The versions are `ARG`s, so a repository that moves can be served without editing the Dockerfile.
 
@@ -130,6 +130,24 @@ docker run --rm my-zeroshot:latest pi --no-extensions --no-approve \
 ```
 
 `background_run` or `web_search` in that output means the `--extension` arguments won.
+
+## Screenshots and browsers
+
+Node Playwright is pinned at `1.64.1` (`ARG PLAYWRIGHT_VERSION`) with its matching Chromium
+(`chromium-1248`, browser `156.0.8078.4`) installed at build time. The Go e2e suite's
+`playwright-go` Chromium is installed by the layer above it, at its own revision, in the same
+`PLAYWRIGHT_BROWSERS_PATH=/opt/playwright`. Both work without network access and without root:
+
+```sh
+playwright screenshot --viewport-size=1280,800 "data:text/html,<h1>ok</h1>" /tmp/pw.png
+chromium --headless --no-sandbox --hide-scrollbars --screenshot=/tmp/cr.png "data:text/html,<h1>ok</h1>"
+```
+
+When a page needs a server, start it first on a port the repository's tests already use (for
+example the port in its Playwright config or test scripts), wait until it listens, then pass that
+URL to either command. If a non-root browser launch needs a home directory, set `HOME=/tmp` for
+the command. Do not set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`: a run cannot download or install a
+browser, so use the versions the image already ships.
 
 ## Image tags are not immutable
 

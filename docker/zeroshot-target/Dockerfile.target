@@ -10,6 +10,10 @@
 # Build it with ./build.sh, which stages the zeroshot source as the build context.
 # syntax=docker/dockerfile:1
 
+# Declared before the first FROM so the Node Playwright package and the matching browser revision
+# are one overridable build argument. Playwright 1.64.1 supports this image's Debian 13 (trixie).
+ARG PLAYWRIGHT_VERSION=1.64.1
+
 FROM node:24-trixie-slim AS ui-builder
 
 WORKDIR /src
@@ -65,6 +69,7 @@ RUN mkdir -p /opt/go \
 FROM node:24-trixie-slim AS tooling
 
 ARG PI_VERSION=1.4.0
+ARG PLAYWRIGHT_VERSION
 ARG BILLION_CONTEXT_VERSION=0.1.207
 ARG PI_WEB_ACCESS_VERSION=0.44.0
 ARG PI_BACKGROUND_TERMINAL_VERSION=0.12.0
@@ -164,6 +169,23 @@ RUN cd /tmp \
     && go get github.com/mxschmitt/playwright-go@latest >/dev/null 2>&1 \
     && go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium \
     || echo "warning: playwright browsers were not installed"
+
+# The Node screenshot path, installed once with its matching browser. A verification run has no
+# root and no network, so `npx playwright` would otherwise download a package and look for a
+# browser revision this image does not have. `--no-remove` keeps the Go e2e browser above: both
+# live under PLAYWRIGHT_BROWSERS_PATH but use different revisions, and neither may clobber the
+# other. PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD is deliberately absent so the download below happens.
+RUN unset PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD \
+    && npm install --global --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}" \
+    && test "$(playwright --version)" = "Version ${PLAYWRIGHT_VERSION}" \
+    && playwright install --with-deps --no-remove chromium \
+    && chmod -R a+rX /opt/playwright \
+    && playwright screenshot --viewport-size=1280,800 "data:text/html,<h1>ok</h1>" /tmp/pw.png \
+    && test -s /tmp/pw.png \
+    && chromium --headless --no-sandbox --hide-scrollbars --screenshot=/tmp/cr.png "data:text/html,<h1>ok</h1>" \
+    && test -s /tmp/cr.png \
+    && rm -f /tmp/pw.png /tmp/cr.png \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --chmod=0755 docker/zeroshot-target/rust-tool.sh /usr/local/libexec/zeroshot-rust-tool
 RUN for tool in cargo cargo-clippy cargo-fmt cargo-llvm-cov clippy-driver rustc rustdoc rustfmt rustup; do \
