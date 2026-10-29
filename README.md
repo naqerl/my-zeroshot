@@ -99,6 +99,66 @@ docker run -d --name zs-target \
 `target OECP endpoint is invalid` (`zeroshot/src/native_v2_target/oecp.rs:43`) — the target advertises
 `--public-origin` and the hub checks that it resolves to the same authority it dialled.
 
+## When the hub MCP hangs
+
+A client that abandons a long-lived streaming MCP tool call (`hub_watch`) can leave the hub's MCP
+worker blocked. The daemon stays up and its reconcile loop keeps ticking — `systemd` still reports
+`active (running)` and the heartbeat's pass count keeps rising — but `POST /mcp` with a valid
+`initialize` accepts the connection and then hangs with zero bytes forever. Invalid JSON still
+returns 200, a missing token still returns 401, and `GET`/`DELETE /mcp` still return 405, so the
+usual HTTP checks all look healthy while every real MCP client is stuck. Nothing recovers the
+worker except a restart.
+
+### Diagnosis
+
+Send a bounded initialize and look at the exit code rather than waiting on the request:
+
+```sh
+curl -m 8 -sS -o /dev/null -w '%{http_code}\n' -X POST \
+  -H "Authorization: Bearer $(cat ~/.config/zeroshot/hub/api-token)" \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"diagnose","version":"1"}}}' \
+  http://127.0.0.1:7383/mcp
+```
+
+`curl` exit 28 (timeout) with no output means the MCP worker is hung. HTTP 401 means the token is
+wrong or unreadable — a configuration error, not a wedge. The heartbeat at
+`~/.config/zeroshot/hub/daemon.json` distinguishes the two further: a rising `passes` with stalled
+MCP traffic is the signature above.
+
+### The watchdog
+
+`scripts/hub-watchdog.sh` performs that initialize with `curl -m 8`, keeps a count of consecutive
+failures in `~/.config/zeroshot/hub/watchdog-failures`, and after two in a row runs
+`systemctl --user restart zeroshot-hub.service`, logging one line to stderr. A successful
+initialize resets the counter. An HTTP 401 is reported but never restarts anything.
+
+Install the user units (oneshot service plus a timer that runs it every two minutes):
+
+```sh
+./scripts/install-hub-watchdog.sh
+```
+
+The installer copies `scripts/hub-watchdog.sh` to `~/.config/zeroshot/hub/`, copies
+`systemd/zeroshot-hub-watchdog.service` and `systemd/zeroshot-hub-watchdog.timer` to
+`~/.config/systemd/user/`, reloads systemd, and enables the timer. It is safe to run again after an
+update. Check the watchdog itself with:
+
+```sh
+systemctl --user list-timers zeroshot-hub-watchdog.timer
+journalctl --user -u zeroshot-hub-watchdog.service
+```
+
+### Manual fallback
+
+If the watchdog is not installed, the hub is already being restarted, or the target tunnel is also
+stuck, restart both user units directly:
+
+```sh
+systemctl --user restart zeroshot-hub.service zeroshot-target-tunnel.service
+```
+
 ## The checkpoint shim
 
 `docker/zeroshot-target/restic-shim.sh` wraps restic so that `backup` gets

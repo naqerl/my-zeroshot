@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart the zeroshot hub when its MCP endpoint is hung
+After=network-online.target
+
+[Service]
+Type=oneshot
+# A failed check is a watchdog result, not a systemd failure; the timer runs it again.
+ExecStart=-%h/.config/zeroshot/hub/hub-watchdog.sh
