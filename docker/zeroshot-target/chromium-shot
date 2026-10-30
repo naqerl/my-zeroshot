@@ -1,0 +1,33 @@
+#!/bin/sh
+# Headless screenshot with the chromium baked into this image, so a verifier never
+# downloads a browser mid-review.
+#
+#   chromium-shot <url> <out.png> [1280x800]
+#
+# Runs as whatever user the target gave the node (no root), hence --no-sandbox and a
+# writable profile directory under /tmp.
+set -eu
+
+url=${1:?usage: chromium-shot <url> <out.png> [1280x800]}
+out=${2:?usage: chromium-shot <url> <out.png> [1280x800]}
+size=${3:-1280x800}
+
+width=$(printf '%s' "$size" | cut -dx -f1)
+height=$(printf '%s' "$size" | cut -dx -f2)
+
+mkdir -p "$(dirname "$out")"
+profile=$(mktemp -d /tmp/chromium-shot.XXXXXX)
+trap 'rm -rf "$profile"' EXIT
+
+HOME=${HOME:-/tmp} exec /usr/bin/chromium \
+	--headless=new \
+	--no-sandbox \
+	--disable-gpu \
+	--disable-dev-shm-usage \
+	--hide-scrollbars \
+	--no-first-run \
+	--user-data-dir="$profile" \
+	--window-size="${width},${height}" \
+	--virtual-time-budget=5000 \
+	--screenshot="$out" \
+	"$url"
