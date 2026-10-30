@@ -75,6 +75,11 @@ ARG TEMPL_VERSION=0.3.1020
 ARG SQLC_VERSION=1.31.1
 ARG STATICCHECK_VERSION=2026.2.1
 ARG TAILWINDCSS_VERSION=4.1.3
+# The Playwright release whose browsers this image must contain. A repository that runs the
+# node `e2e` package (pi-ui does) resolves `playwright-core` at install time and then demands
+# the exact chromium revision that release pins — 1.64.1 wants chromium-1248 (156.0.8078.4).
+# Bumping this ARG is how the image follows `playwright-core` forward.
+ARG PLAYWRIGHT_VERSION=1.64.1
 ARG ZEROSHOT_VERSION=development
 ARG VCS_REF=unknown
 
@@ -164,6 +169,20 @@ RUN cd /tmp \
     && go get github.com/mxschmitt/playwright-go@latest >/dev/null 2>&1 \
     && go run github.com/mxschmitt/playwright-go/cmd/playwright install chromium \
     || echo "warning: playwright browsers were not installed"
+
+# The chromium revision `playwright-core` asks for, installed by the npm Playwright itself so the
+# revision and the marker files match exactly what a node e2e suite validates. The Go install
+# above uses whatever playwright-go pins, which lags behind and left pi-ui's suite unable to
+# start a browser (had 1234, needed 1248). /opt/playwright is also made writable: a run has no
+# root, and an unwritable browser cache turns a revision mismatch into a dead end instead of a
+# `playwright install` away from fixed.
+RUN install -d /opt/playwright \
+    && npm install --global --no-audit --no-fund "playwright@${PLAYWRIGHT_VERSION}" \
+    && playwright install chromium \
+    && find /opt/playwright -maxdepth 3 -name chrome -type f | grep -q . \
+    && chmod -R a+rwX /opt/playwright \
+    && node -e 'const {chromium}=require("/usr/local/lib/node_modules/playwright");(async()=>{const b=await chromium.launch({args:["--no-sandbox"]});console.log("playwright chromium",b.version());await b.close()})().catch((e)=>{console.error("playwright chromium cannot launch:",e.message);process.exit(1)})' \
+    && ls -1 /opt/playwright
 
 COPY --chmod=0755 docker/zeroshot-target/rust-tool.sh /usr/local/libexec/zeroshot-rust-tool
 RUN for tool in cargo cargo-clippy cargo-fmt cargo-llvm-cov clippy-driver rustc rustdoc rustfmt rustup; do \
