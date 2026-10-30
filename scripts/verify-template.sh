@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Verify templates/software-change.json before an image is built from it.
 #
-# The file is a copy of the built-in `software-change` graph with three instruction appends
-# (worker envelope, acceptance review scope, code review scope). This script fails if the file
-# does not parse, if the graph shape drifted from the built-in template, or if any of the three
-# appends went missing — a broken graph must never reach a published image.
+# The file is the built-in `software-change` graph, verbatim:
+#
+#   zeroshot template show software-change > templates/software-change.json
+#
+# Nothing is appended to it. This script fails if the file does not parse, if the graph
+# shape drifted from the built-in template, or if a local instruction append crept back
+# in — a broken or locally patched graph must never reach a published image.
 #
 #   ./scripts/verify-template.sh [path/to/template.json]
 set -uo pipefail
@@ -22,13 +25,6 @@ qc() {
   shift
   if jq -e "$@" "$template" >/dev/null 2>&1; then ok "$desc"; else bad "$desc"; fi
 }
-
-WORKER_APPEND='Final message contract: reply with exactly one JSON object of the form {"response": null}. Any other top-level key (output, signals, payload) is a protocol error and costs a retry.'
-REVIEW_APPEND="Publication is never your concern: the delivery node commits, pushes, and opens the pull request. A local commit in the workspace is the correct state for review. Never reject because nothing is pushed, because the remote branch still points at an older revision, or because a pull request does not exist yet; judge only the workspace content, the observable behaviour, and the user's request."
-REVIEW_ENVELOPE='{"response": {...}}'
-FINDINGS_APPEND='Structured findings are mandatory.'
-CLOSED_APPEND='Previous round findings arrive as acceptanceFeedback and codeFeedback'
-REPLY_BUDGET='Budget the reply: it must fit in a single message'
 
 if ! command -v jq >/dev/null 2>&1; then
   bad "jq is installed"
@@ -48,52 +44,55 @@ if jq empty "$template" >/dev/null 2>&1; then ok "template parses as JSON"; else
 fi
 
 # --- top-level shape -----------------------------------------------------------------------
+qc "profile is openengine.graph.full/v1" '.profile == "openengine.graph.full/v1"'
 for key in profile initialInput policy root; do
   qc "top-level key: $key" --arg k "$key" 'has($k)'
 done
+qc "initialInput requires task" '(.initialInput.fields.task.required == true)'
 
-# --- the three instruction appends ----------------------------------------------------------
-qc "worker envelope append present exactly once" --arg w "$WORKER_APPEND" \
-  '[.. | strings | select(contains($w))] | length == 1'
-qc "review-scope append present on both verifiers" --arg r "$REVIEW_APPEND" \
-  '[.. | strings | select(contains($r))] | length == 2'
-qc "reviewer envelope append present on both verifiers" --arg e "$REVIEW_ENVELOPE" \
-  '[.. | strings | select(contains($e))] | length == 2'
-qc "no reviewer still asks for a top-level output/signals envelope" \
-  '[.. | strings | select(contains("Final message contract"))] | length == 3'
-qc "structured-findings append present on both verifiers" --arg f "$FINDINGS_APPEND" \
-  '[.. | strings | select(contains($f))] | length == 2'
-qc "closed-findings append present on both verifiers" --arg c "$CLOSED_APPEND" \
-  '[.. | strings | select(contains($c))] | length == 2'
-qc "reply-budget append present on both verifiers and the worker" --arg b "$REPLY_BUDGET" \
-  '[.. | strings | select(contains($b))] | length == 3'
-qc "both verifiers declare the prior-round feedback fields" \
-  '[.. | objects | select(.kind=="verifier" and (.name=="acceptance" or .name=="code")) | .input.fields] | length == 2 and all(.[]; has("acceptanceFeedback") and has("codeFeedback"))'
-qc "both verifiers bind the prior-round feedback from state" \
-  '[.. | objects | select(.kind=="verifier" and (.name=="acceptance" or .name=="code")) | [.inputBindings[].target[0]]] | length == 2 and all(.[]; index("acceptanceFeedback") != null and index("codeFeedback") != null)'
-
-# --- graph shape: kinds and names must match the built-in template -------------------------
+# --- graph shape: must match the built-in template -----------------------------------------
 qc "node: seq run"            'any(.. | objects; .kind == "seq" and .name == "run")'
 qc "node: loop change_loop"   'any(.. | objects; .kind == "loop" and .name == "change_loop")'
+qc "node: seq change_iteration" 'any(.. | objects; .kind == "seq" and .name == "change_iteration")'
 qc "node: par parallel_reviews" 'any(.. | objects; .kind == "par" and .name == "parallel_reviews")'
-for name in worker worker_result reviews review_result deliver delivery_result; do
+qc "node: succeed done"       'any(.. | objects; .kind == "succeed" and .name == "done")'
+for name in worker worker_result reviews review_result deliver delivery_result change_attempts_exhausted; do
   qc "node name present: $name" --arg n "$name" 'any(.. | objects; .name? == $n)'
 done
 
-qc "verifier worker: builtin.agent.software-worker@1" \
+qc "worker: builtin.agent.software-worker@1" \
   'any(.. | objects; .worker? == "builtin.agent.software-worker@1")'
-qc "verifier worker: builtin.agent.acceptance-verifier@1" \
+qc "acceptance verifier: builtin.agent.acceptance-verifier@1" \
   'any(.. | objects; .worker? == "builtin.agent.acceptance-verifier@1")'
-qc "verifier worker: builtin.agent.code-verifier@1" \
+qc "code verifier: builtin.agent.code-verifier@1" \
   'any(.. | objects; .worker? == "builtin.agent.code-verifier@1")'
-qc "delivery worker: builtin.git-delivery.pr@2 or push@1" \
-  'any(.. | objects; (.worker? == "builtin.git-delivery.pr@2") or (.worker? == "builtin.git-delivery.push@1"))'
+qc "delivery worker: builtin.git-delivery.pr@2" \
+  'any(.. | objects; .worker? == "builtin.git-delivery.pr@2")'
 qc "verifier nodes are named acceptance and code" \
   'any(.. | objects; .kind == "verifier" and .name == "acceptance") and any(.. | objects; .kind == "verifier" and .name == "code")'
 
-# --- budgets --------------------------------------------------------------------------------
 qc "change_loop maxIterations is 10" \
   '[.. | objects | select(has("maxIterations")) | .maxIterations] == [10]'
+
+# --- pristineness: no local instruction appends may come back -------------------------------
+for banned in \
+  'Budget the reply' \
+  'Publication is never your concern' \
+  'Final message contract' \
+  'Structured findings are mandatory' \
+  'previous round findings arrive as' \
+  'ntfy' \
+  'npx -y' \
+  'chromium-shot' \
+  'PLAYWRIGHT_BROWSERS_PATH'
+do
+  qc "no local append: ${banned}" --arg b "$banned" \
+    '[.. | strings | select(contains($b))] | length == 0'
+done
+
+# The built-in verifier instructions are short; a locally grown prompt is a drift signal.
+qc "no verifier instruction exceeds 1500 characters" \
+  '[.. | objects | select(.kind == "verifier") | (.instructions // "") | length] | all(.[]; . < 1500)'
 
 echo
 if [ "$failures" -ne 0 ]; then
