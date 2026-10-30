@@ -124,7 +124,6 @@ RUN cd /tmp/github-cli \
     && test -r /usr/local/lib/zeroshot/libnss_wrapper.so \
     && git_version="$(git --version)" \
     && dpkg --compare-versions "${git_version#git version }" ge 2.47 \
-    && chromium --version \
     && rm -rf /var/lib/apt/lists/* /tmp/github-cli
 
 COPY --from=python-runtime /usr/local /usr/local
@@ -135,8 +134,7 @@ COPY --from=rust-toolchain /opt/rustup /opt/rustup
 # without network access and without `make install-deps`.
 COPY --from=go-toolchain /opt/go /opt/go
 ENV GOROOT=/opt/go \
-    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright \
-    CHROME_BIN=/usr/bin/chromium
+    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 RUN ln -sf /opt/go/bin/go /usr/local/bin/go \
     && ln -sf /opt/go/bin/gofmt /usr/local/bin/gofmt \
     && install -d /opt/gotools/bin \
@@ -215,12 +213,8 @@ COPY docker/zeroshot-target/entrypoint.sh /usr/local/bin/zeroshot-target-entrypo
 # exhausts the checkpoint budget and the run dies with
 # "workspace checkpoint is unavailable: restic operation failed".
 COPY docker/zeroshot-target/restic-shim.sh /usr/local/bin/restic
-# A verifier captures UI evidence with the chromium baked into this image;
-# nothing is downloaded and no npx runs during a review.
-COPY --chmod=0755 docker/zeroshot-target/chromium-shot /usr/local/bin/chromium-shot
 RUN chmod 0755 /usr/local/bin/restic \
-    && /usr/local/bin/restic version \
-    && command -v chromium-shot
+    && /usr/local/bin/restic version
 
 # The native runtime deliberately retains root so it can isolate node processes.
 # Root owns target state; execute-only access lets isolated run UIDs reach their own workspaces.
