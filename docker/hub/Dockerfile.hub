@@ -1,0 +1,74 @@
+# my-zeroshot hub image: the zeroshot binary carrying `hub daemon run`, and nothing else.
+#
+# The target image (`docker/zeroshot-target`) carries a whole agent toolchain — node, pi,
+# go, python, cargo — because a run executes inside it. The hub does not: it schedules, it
+# talks to pool boxes over HTTP and it spawns nothing but git. Shipping it from the same
+# 1.5 GB image wastes pull time on every cluster node and puts a writable toolchain next to
+# the process that holds every job's credentials.
+#
+# Same binary, same CLI, same flags as `hub install` writes into a systemd unit
+# (`hub daemon run --interval … --listen … --token-file … --max-stall …`), so a container
+# and a host unit stay interchangeable.
+#
+#   docker build -f docker/hub/Dockerfile.hub -t my-zeroshot-hub:dev .
+#   docker run --rm -p 7383:7383 -v hub-data:/data my-zeroshot-hub:dev
+#
+# syntax=docker/dockerfile:1
+
+# The source is cloned at the requested ref rather than copied from the build context: the
+# hub ships from a branch in naqerl/zeroshot, and a CI run must be able to build any of them.
+FROM alpine/git:latest AS source
+ARG ZEROSHOT_REPO=https://github.com/naqerl/zeroshot.git
+ARG ZEROSHOT_REF=integrate/hub-all
+RUN git clone --filter=blob:none "$ZEROSHOT_REPO" /src \
+    && cd /src \
+    && (git rev-parse --verify --quiet "$ZEROSHOT_REF" >/dev/null || git fetch --quiet origin "$ZEROSHOT_REF") \
+    && git checkout --quiet "$ZEROSHOT_REF" \
+    && git log -1 --format='source %h %s'
+
+# `--features ui` embeds ui/dist through include_dir!, so the dashboard is compiled in and the
+# runtime image needs no node.
+FROM node:24-trixie-slim AS ui-builder
+COPY --from=source /src /src
+WORKDIR /src/ui
+RUN npm ci --ignore-scripts && npm run build
+
+FROM rust:1.97.0-trixie AS rust-builder
+COPY --from=source /src /src
+COPY --from=ui-builder /src/ui/dist /src/ui/dist
+WORKDIR /src
+# The same invocation the target image uses (docker/zeroshot-target/Dockerfile.target), so the
+# hub and the boxes it drives are always built from one recipe.
+RUN cargo build --locked --release --package zeroshot --bin zeroshot --features ui
+
+FROM debian:trixie-slim
+
+# git: the hub clones the repository of every job it places, and restic shims call it.
+# openssh-client: a pool box is reached over ssh before its target answers.
+# curl: the container's own healthcheck, and operator debugging without a second image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl git openssh-client tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d -o 1000 -g 1000 /data /home/user
+
+COPY --from=rust-builder /src/target/release/zeroshot /usr/local/bin/zeroshot
+
+# The hub writes its journal, its registry and its stall clocks under one folder, and keeps
+# ssh material in HOME. Both are the paths the systemd unit and the k8s manifest use.
+ENV HOME=/home/user \
+    ZEROSHOT_HUB_DIR=/data \
+    PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+
+USER 1000:1000
+WORKDIR /home/user
+VOLUME ["/data"]
+EXPOSE 7383
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:7383/v1/hub/health >/dev/null || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/zeroshot"]
+# Mirrors the flags `hub install` pins; a deployment overrides them with its own listener,
+# token file and stall limit.
+CMD ["hub", "daemon", "run", "--interval", "10s", "--listen", "0.0.0.0:7383"]
