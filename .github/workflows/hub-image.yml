@@ -6,6 +6,13 @@ name: hub-image
 #
 # The build doubles as the compiler for naqerl/zeroshot: dispatch it against any ref to find out
 # whether that ref builds, which is why the ref is an input rather than a constant.
+#
+# A plain push touching `docker/hub/**` on main rebuilds from the default ref, so an operator can
+# publish the current hub without a workflow_dispatch and without borrowing a personal token.
+#
+# The image is tagged with the **compiled** zeroshot commit, not with this repository's sha: the
+# tag has to answer "what am I running", otherwise every deployment pins a digest by hand (that is
+# how `ghcr.io/naqerl/my-zeroshot-hub@sha256:…` came to be written into gitops).
 
 on:
   push:
@@ -41,6 +48,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The tag must name the code inside the image. A branch input is resolved to a sha here,
+      # once, and every later step uses that sha; a sha input is used as it arrives.
+      - name: Resolve the compiled ref
+        run: |
+          resolved=$(git ls-remote "${ZEROSHOT_REPO}" "${ZEROSHOT_REF}" | awk '{print $1}' | head -1)
+          if [ -z "$resolved" ]; then
+            case "${ZEROSHOT_REF}" in
+              [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) resolved="${ZEROSHOT_REF}" ;;
+              *) echo "cannot resolve ${ZEROSHOT_REF} in ${ZEROSHOT_REPO}" >&2; exit 1 ;;
+            esac
+          fi
+          echo "ZEROSHOT_SHA=${resolved}" >> "$GITHUB_ENV"
+          echo "compiled from ${ZEROSHOT_REPO} ${ZEROSHOT_REF} -> ${resolved}"
+
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -62,14 +83,14 @@ jobs:
             --load \
             --build-arg ZEROSHOT_REPO="${ZEROSHOT_REPO}" \
             --build-arg ZEROSHOT_REF="${ZEROSHOT_REF}" \
-            --tag "${IMAGE}:${GITHUB_SHA::12}" \
+            --tag "${IMAGE}:${ZEROSHOT_SHA::12}" \
             --file docker/hub/Dockerfile.hub .
 
       # The binary must actually carry the hub subcommand, and a container must come up with a
       # listener on 7383 — a hub image that only starts the agent CLI is worse than none.
       - name: Smoke test
         run: |
-          image="${IMAGE}:${GITHUB_SHA::12}"
+          image="${IMAGE}:${ZEROSHOT_SHA::12}"
           docker run --rm --entrypoint /usr/local/bin/zeroshot "$image" --version
           docker run --rm --entrypoint /usr/local/bin/zeroshot "$image" hub --help
           docker run --rm --entrypoint /usr/local/bin/zeroshot "$image" hub daemon --help
@@ -78,7 +99,7 @@ jobs:
 
       - name: Start and probe
         run: |
-          image="${IMAGE}:${GITHUB_SHA::12}"
+          image="${IMAGE}:${ZEROSHOT_SHA::12}"
           docker run --detach --name hub-smoke -p 17383:7383 \
             --tmpfs /data:rw,uid=1000,gid=1000 \
             --entrypoint /usr/local/bin/zeroshot "$image" \
@@ -97,7 +118,24 @@ jobs:
       - name: Tag and push
         if: github.event_name != 'pull_request'
         run: |
-          docker tag "${IMAGE}:${GITHUB_SHA::12}" "${IMAGE}:latest"
-          docker push "${IMAGE}:${GITHUB_SHA::12}"
+          short="${ZEROSHOT_SHA::12}"
+          branch="$(echo "${ZEROSHOT_REF}" | tr '/_' '--' | sed -E 's/[^A-Za-z0-9.-]+/-/g')"
+          docker tag "${IMAGE}:${short}" "${IMAGE}:zs-${short}"
+          docker tag "${IMAGE}:${short}" "${IMAGE}:latest"
+          docker push "${IMAGE}:zs-${short}"
           docker push "${IMAGE}:latest"
-          echo "published ${IMAGE}:${GITHUB_SHA::12} (zeroshot ${ZEROSHOT_REF})" >> "$GITHUB_STEP_SUMMARY"
+          # A ref-readable alias so a deployment can name a branch instead of a digest. Not used
+          # for `latest`: a moved branch must not silently roll the cluster.
+          docker tag "${IMAGE}:${short}" "${IMAGE}:ref-${branch}"
+          docker push "${IMAGE}:ref-${branch}"
+          {
+            echo "published \`${IMAGE}:zs-${short}\` (alias \`ref-${branch}\`, digest below)"
+            echo
+            echo "| what | value |"
+            echo "| --- | --- |"
+            echo "| zeroshot ref | \`${ZEROSHOT_REF}\` |"
+            echo "| compiled commit | \`${ZEROSHOT_SHA}\` |"
+            echo "| workflow commit | \`${GITHUB_SHA}\` |"
+            echo
+            docker buildx imagetools inspect "${IMAGE}:zs-${short}" | sed -n '1,20p'
+          } >> "$GITHUB_STEP_SUMMARY"

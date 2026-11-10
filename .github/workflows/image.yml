@@ -10,7 +10,7 @@ on:
     inputs:
       zeroshot_ref:
         description: zeroshot branch or tag to build against
-        default: feat/hub
+        default: integrate/hub-all
 
 concurrency:
   group: image-${{ github.ref }}
@@ -18,7 +18,7 @@ concurrency:
 
 env:
   ZEROSHOT_REPO: https://github.com/naqerl/zeroshot.git
-  ZEROSHOT_REF: ${{ github.event.inputs.zeroshot_ref || 'feat/hub' }}
+  ZEROSHOT_REF: ${{ github.event.inputs.zeroshot_ref || 'integrate/hub-all' }}
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
@@ -29,6 +29,19 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+
+      # The tag must name the zeroshot code baked into the image, not this repository's sha.
+      - name: Resolve the compiled ref
+        run: |
+          resolved=$(git ls-remote "${ZEROSHOT_REPO}" "${ZEROSHOT_REF}" | awk '{print $1}' | head -1)
+          if [ -z "$resolved" ]; then
+            case "${ZEROSHOT_REF}" in
+              [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) resolved="${ZEROSHOT_REF}" ;;
+              *) echo "cannot resolve ${ZEROSHOT_REF} in ${ZEROSHOT_REPO}" >&2; exit 1 ;;
+            esac
+          fi
+          echo "ZEROSHOT_SHA=${resolved}" >> "$GITHUB_ENV"
+          echo "compiled from ${ZEROSHOT_REPO} ${ZEROSHOT_REF} -> ${resolved}"
 
       - name: Free disk space
         run: |
@@ -54,12 +67,12 @@ jobs:
       - name: Build
         run: |
           chmod +x build.sh
-          TAG="${IMAGE}:${GITHUB_SHA::12}" ./build.sh
+          TAG="${IMAGE}:${ZEROSHOT_SHA::12}" ./build.sh
 
       # The image's ENTRYPOINT is the zeroshot target launcher, so every check must override it.
       - name: Smoke test
         run: |
-          image="${IMAGE}:${GITHUB_SHA::12}"
+          image="${IMAGE}:${ZEROSHOT_SHA::12}"
           docker run --rm --entrypoint pi "$image" --version
           docker run --rm --entrypoint cat "$image" /opt/zeroshot/pi-extensions/list
           docker run --rm --entrypoint sh "$image" -c 'head -3 /usr/local/bin/restic && restic version'
@@ -69,6 +82,22 @@ jobs:
       - name: Tag and push
         if: github.event_name != 'pull_request'
         run: |
-          docker tag "${IMAGE}:${GITHUB_SHA::12}" "${IMAGE}:latest"
-          docker push "${IMAGE}:${GITHUB_SHA::12}"
+          short="${ZEROSHOT_SHA::12}"
+          branch="$(echo "${ZEROSHOT_REF}" | tr '/_' '--' | sed -E 's/[^A-Za-z0-9.-]+/-/g')"
+          docker tag "${IMAGE}:${short}" "${IMAGE}:zs-${short}"
+          docker tag "${IMAGE}:${short}" "${IMAGE}:latest"
+          docker push "${IMAGE}:zs-${short}"
           docker push "${IMAGE}:latest"
+          docker tag "${IMAGE}:${short}" "${IMAGE}:ref-${branch}"
+          docker push "${IMAGE}:ref-${branch}"
+          {
+            echo "published \`${IMAGE}:zs-${short}\` (alias \`ref-${branch}\`)"
+            echo
+            echo "| what | value |"
+            echo "| --- | --- |"
+            echo "| zeroshot ref | \`${ZEROSHOT_REF}\` |"
+            echo "| compiled commit | \`${ZEROSHOT_SHA}\` |"
+            echo "| workflow commit | \`${GITHUB_SHA}\` |"
+            echo
+            docker buildx imagetools inspect "${IMAGE}:zs-${short}" | sed -n '1,20p'
+          } >> "$GITHUB_STEP_SUMMARY"
