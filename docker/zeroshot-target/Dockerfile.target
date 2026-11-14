@@ -65,7 +65,7 @@ RUN mkdir -p /opt/go \
 FROM node:24-trixie-slim AS tooling
 
 ARG PI_VERSION=1.4.0
-ARG BILLION_CONTEXT_VERSION=0.1.207
+
 ARG PI_WEB_ACCESS_VERSION=0.44.0
 ARG PI_BACKGROUND_TERMINAL_VERSION=0.12.0
 ARG TARGETARCH
@@ -205,7 +205,6 @@ RUN install -d /opt/zeroshot/bin /opt/zeroshot/harness/lib/node_modules /opt/zer
     && npm install --global --prefix /opt/zeroshot/pi-extensions --no-audit --no-fund \
         --strict-allow-scripts \
         --allow-scripts=esbuild,@google/genai,protobufjs \
-        "billion-context@${BILLION_CONTEXT_VERSION}" \
         "pi-web-access@${PI_WEB_ACCESS_VERSION}" \
         "@bytetrue/pi-background-terminal@${PI_BACKGROUND_TERMINAL_VERSION}" \
     && npm cache clean --force
@@ -219,7 +218,7 @@ RUN chmod 0755 /usr/local/libexec/zeroshot-pi-extensions /usr/local/bin/pi \
     && /usr/local/libexec/zeroshot-pi-extensions \
         /opt/zeroshot/pi-extensions/lib/node_modules \
         /opt/zeroshot/pi-extensions/list \
-        billion-context pi-web-access @bytetrue/pi-background-terminal \
+        pi-web-access @bytetrue/pi-background-terminal \
     && test -s /opt/zeroshot/pi-extensions/list
 
 FROM tooling AS runtime
