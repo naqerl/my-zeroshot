@@ -32,13 +32,20 @@ RUN rustup component add rustfmt clippy llvm-tools-preview \
 FROM golang:1.27.1-trixie AS restic-builder
 ARG TARGETARCH
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-p=4
-# build-restic.sh fetches the pinned restic source through github-release-asset.js,
-# which is a Node script; the Go image has no Node, so the stage installs it.
+# build-restic.sh normally resolves the pinned restic source through
+# github-release-asset.js, which calls api.github.com and answers 403 from
+# inside a Docker build (unauthenticated rate limit). Fetch the release asset
+# straight from its download URL instead and hand the archive to the script
+# through ZEROSHOT_RESTIC_SOURCE_ARCHIVE; it still verifies - and fails on -
+# the pinned sha256. Bump the version here when upstream's RESTIC_VERSION moves.
+ARG RESTIC_VERSION=0.19.1
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL -o /tmp/restic.tar.gz \
+       "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic-${RESTIC_VERSION}.tar.gz"
+ENV ZEROSHOT_RESTIC_SOURCE_ARCHIVE=/tmp/restic.tar.gz
 COPY scripts/distribution/build-restic.sh /usr/local/bin/build-restic
-COPY scripts/distribution/github-release-asset.js /usr/local/bin/github-release-asset.js
 RUN case "$TARGETARCH" in \
       amd64) target=x86_64-unknown-linux-musl ;; \
       arm64) target=aarch64-unknown-linux-musl ;; \
