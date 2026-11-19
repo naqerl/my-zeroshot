@@ -62,6 +62,9 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY zeroshot ./zeroshot
+# zeroshot embeds docs/assets/*/runtime.json through include_str!, resolved relative
+# to zeroshot/src/profile_ui, so the tree must exist at compile time.
+COPY docs/assets ./docs/assets
 COPY --from=ui-builder /src/ui/dist ./ui/dist
 
 RUN cargo build --locked --release --package zeroshot --bin zeroshot --features ui
