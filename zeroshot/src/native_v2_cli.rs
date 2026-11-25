@@ -454,6 +454,18 @@ pub enum NativeV2CliCommand {
         delivery: TemplateDelivery,
         json: bool,
     },
+    EvalList {
+        root: PathBuf,
+    },
+    EvalShow {
+        root: PathBuf,
+        slug: String,
+    },
+    EvalCreate {
+        root: PathBuf,
+        file: PathBuf,
+        overwrite: bool,
+    },
     StackValidate {
         file: PathBuf,
     },
