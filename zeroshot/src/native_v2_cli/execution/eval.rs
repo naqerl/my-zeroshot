@@ -418,6 +418,7 @@ where
         title: RunTitle,
     ) -> Result<Option<SettledRun>, NativeV2CliError> {
         let command = RunCommand {
+            controller: crate::native_v2_cli::local::LocalControllerMode::Detached,
             target: Some(self.target.to_owned()),
             cwd: Some(self.workspace.to_path_buf()),
             worktree: None,
@@ -437,6 +438,7 @@ where
             validate_only: false,
             submission_key: None,
             forward_github_token: false,
+            workspace: None,
         };
         let Self {
             context,
@@ -483,9 +485,7 @@ where
         let context = self.context;
         let target = self.target;
         let deadline = Instant::now() + SETTLEMENT_TIMEOUT;
-        let params = RunStatusParams {
-            run_id: RunId::new(run_id),
-        };
+        let params = RunStatusParams::new(RunId::new(run_id));
         loop {
             // The detach request bounds the status read itself, so Ctrl-C ends the command instead
             // of waiting on a target that never answers.

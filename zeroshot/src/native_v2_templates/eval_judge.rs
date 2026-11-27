@@ -84,6 +84,7 @@ fn judge_step() -> Result<GraphNode, BuiltinTemplateError> {
 
 fn done() -> Result<GraphNode, BuiltinTemplateError> {
     Ok(GraphNode::Succeed(SucceedNode {
+        artifacts: BTreeMap::new(),
         name: node_name(DONE)?,
         output: record_type(vec![(VERDICTS, verdicts_type()?, true)])?,
         bindings: vec![state_input(VERDICTS, VERDICTS)?],
